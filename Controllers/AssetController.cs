@@ -271,22 +271,51 @@ namespace ITAM.Controllers
         }
 
         [HttpGet("AssetCount")]
-        public async Task<IActionResult> GetAssetCounts(string type = null)
+        public async Task<IActionResult> GetAssetCounts(string type = null, string groupBy = null)
         {
             try
             {
-                // If no type is specified, return counts for all asset types dynamically
+                // Base query: filter out deleted assets
+                var query = _context.Assets.AsQueryable()
+                    .Where(a => a.is_deleted == false || a.is_deleted == null);
+
+                // Handle "type=null" as an actual null filter
+                if (type?.ToLower() == "null")
+                {
+                    query = query.Where(a => a.type == null);
+                }
+                else if (!string.IsNullOrEmpty(type))
+                {
+                    query = query.Where(a => a.type.ToUpper() == type.ToUpper());
+                }
+
+                // If grouping by date_created
+                if (groupBy?.ToLower() == "date")
+                {
+                    var dateCounts = await query
+                        .Where(a => a.date_created != null) // Ensure no nulls
+                        .GroupBy(a => a.date_created.Value.Date)
+                        .Select(g => new
+                        {
+                            date = g.Key,
+                            count = g.Count()
+                        })
+                        .OrderBy(g => g.date)
+                        .ToListAsync();
+
+                    return Ok(dateCounts);
+                }
+
+
+                // If no type specified, return count per type
                 if (string.IsNullOrEmpty(type))
                 {
-                    // Fetch distinct asset types from the database
-                    var assetTypes = await _context.Assets
-                        .Where(a => a.is_deleted == false || a.is_deleted == null)
-                        .Select(a => a.type.ToUpper())  // Ensuring case-insensitivity
+                    var assetTypes = await query
+                        .Select(a => a.type.ToUpper())
                         .Distinct()
                         .ToListAsync();
 
-                    var assetCounts = await _context.Assets
-                        .Where(a => (a.is_deleted == false || a.is_deleted == null) && assetTypes.Contains(a.type.ToUpper()))
+                    var assetCounts = await query
                         .GroupBy(a => a.type.ToUpper())
                         .Select(g => new
                         {
@@ -304,18 +333,16 @@ namespace ITAM.Controllers
                     return Ok(result);
                 }
 
-                // If type is provided, get the count for that specific type
-                var count = await _context.Assets
-                    .Where(a => (a.is_deleted == false || a.is_deleted == null) && a.type.ToUpper() == type.ToUpper())
-                    .CountAsync();
-
-                return Ok(new { Type = type, Count = count });
+                // If type is provided and no grouping, return count for that type
+                var singleCount = await query.CountAsync();
+                return Ok(new { Type = type, Count = singleCount });
             }
             catch (Exception ex)
             {
                 return BadRequest($"Error retrieving asset counts: {ex.Message}");
             }
         }
+
 
 
         [Authorize]

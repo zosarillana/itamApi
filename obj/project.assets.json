@@ -8382,11 +8382,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\it-assets-management\\itam-ui-april\\itam-api\\040325\\itam-apiUpdates\\ITAM.csproj",
+      "projectUniqueName": "D:\\it-assets-management\\itam-api-april\\itamApi\\ITAM.csproj",
       "projectName": "ITAM",
-      "projectPath": "D:\\it-assets-management\\itam-ui-april\\itam-api\\040325\\itam-apiUpdates\\ITAM.csproj",
+      "projectPath": "D:\\it-assets-management\\itam-api-april\\itamApi\\ITAM.csproj",
       "packagesPath": "C:\\Users\\zcsarillana\\.nuget\\packages\\",
-      "outputPath": "D:\\it-assets-management\\itam-ui-april\\itam-api\\040325\\itam-apiUpdates\\obj\\",
+      "outputPath": "D:\\it-assets-management\\itam-api-april\\itamApi\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\zcsarillana\\AppData\\Roaming\\NuGet\\NuGet.Config",

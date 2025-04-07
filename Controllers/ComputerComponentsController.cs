@@ -258,40 +258,77 @@ namespace ITAM.Controllers
 
         //Get Count 
         [HttpGet("ComponentCount")]
-        public async Task<IActionResult> GetComponentCounts(string type = null)
+        public async Task<IActionResult> GetComponentCounts(string type = null, string groupBy = null)
         {
             try
             {
                 var trackedTypes = new List<string> { "RAM", "SSD", "HDD", "GPU", "BOARD" };
 
-                // If a specific type is requested
-                if (!string.IsNullOrEmpty(type))
+                // Base query with soft-delete filter
+                var query = _context.computer_components
+                    .Where(c => c.is_deleted == false || c.is_deleted == null)
+                    .AsQueryable();
+
+                // Handle "type=null" as actual null in DB
+                if (type?.ToLower() == "null")
+                {
+                    query = query.Where(c => c.type == null);
+                }
+                else if (!string.IsNullOrEmpty(type))
                 {
                     var normalizedType = type.ToUpper();
 
-                    // If the type is not in the tracked list, return 0
+                    // If type is not tracked, return 0
                     if (!trackedTypes.Contains(normalizedType))
                     {
                         return Ok(new { Type = normalizedType, Count = 0 });
                     }
 
-                    var count = await _context.computer_components
-                        .Where(c =>
-                            (c.is_deleted == false || c.is_deleted == null) &&
-                            c.type.ToUpper() == normalizedType)
-                        .CountAsync();
-
-                    return Ok(new { Type = normalizedType, Count = count });
+                    query = query.Where(c => c.type.ToUpper() == normalizedType);
                 }
 
-                // Otherwise, return counts for all tracked types
-                var componentCounts = await _context.computer_components
-                    .Where(c => (c.is_deleted == false || c.is_deleted == null) && trackedTypes.Contains(c.type.ToUpper()))
-                    .GroupBy(c => c.type.ToUpper())
+                // Grouping by date_acquired (but call it "date" in response)
+                if (groupBy?.ToLower() == "date")
+                {
+                    // Load the data first (in-memory filtering and grouping)
+                    var components = await query
+                        .Where(c => !string.IsNullOrEmpty(c.date_acquired))  // Ensure date_acquired is not null or empty
+                        .ToListAsync();
+
+                    // Parse the date_acquired field and group by the parsed date
+                    var dateCounts = components
+                        .Select(c => new
+                        {
+                            ParsedDate = DateTime.TryParse(c.date_acquired, out DateTime parsedDate) ? parsedDate.Date : (DateTime?)null
+                        })
+                        .Where(c => c.ParsedDate != null)  // Filter out any null dates
+                        .GroupBy(c => c.ParsedDate)  // Group by the parsed date
+                        .Select(g => new
+                        {
+                            date = g.Key,  // The parsed date
+                            count = g.Count()  // Count of components for that date
+                        })
+                        .OrderBy(g => g.date)  // Order the results by date
+                        .ToList();
+
+                    return Ok(dateCounts);  // Return the grouped result by date
+                }
+
+                // If specific type is requested but not grouping by date
+                if (!string.IsNullOrEmpty(type))
+                {
+                    var count = await query.CountAsync();
+                    return Ok(new { Type = type.ToUpper(), Count = count });
+                }
+
+                // Otherwise return counts for all tracked types
+                var componentCounts = await query
+                    .Where(c => trackedTypes.Contains(c.type.ToUpper()))  // Filter by tracked types
+                    .GroupBy(c => c.type.ToUpper())  // Group by component type
                     .Select(g => new
                     {
                         Type = g.Key,
-                        Count = g.Count()
+                        Count = g.Count()  // Count components per type
                     })
                     .ToListAsync();
 
@@ -299,17 +336,16 @@ namespace ITAM.Controllers
                 var result = trackedTypes.Select(t => new
                 {
                     Type = t,
-                    Count = componentCounts.FirstOrDefault(c => c.Type == t)?.Count ?? 0
+                    Count = componentCounts.FirstOrDefault(c => c.Type == t)?.Count ?? 0  // Handle missing types
                 });
 
-                return Ok(result);
+                return Ok(result);  // Return the result for all tracked types
             }
             catch (Exception ex)
             {
                 return BadRequest(new { message = $"Error retrieving component counts: {ex.Message}" });
             }
         }
-
 
 
 

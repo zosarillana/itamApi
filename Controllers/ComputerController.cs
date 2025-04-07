@@ -47,36 +47,89 @@ namespace ITAM.Controllers
                 return BadRequest($"Error assigning owner: {ex.Message}");
             }
         }
-        [Authorize]
+
+  
         [HttpGet("ComputerCount")]
-        public async Task<IActionResult> GetComputerCount(
-        string type = null)  // Default value is null, which means no type is provided
+        public async Task<IActionResult> GetComputerCount(string type = null, string groupBy = null)
+        {
+            try
             {
-                try
-                {
-                    // If no type is specified, return the count for both LAPTOP and CPU
-                    if (string.IsNullOrEmpty(type))
-                    {
-                        var laptopCount = await _computerService.GetComputerCountByTypeAsync("LAPTOP");
-                        var cpuCount = await _computerService.GetComputerCountByTypeAsync("CPU");
+                // Base query: filter out deleted computers
+                var query = _context.computers.AsQueryable()
+                    .Where(c => c.is_deleted == false || c.is_deleted == null);
 
-                        return Ok(new[]
+                // Handle "type=null" as an actual null filter
+                if (type?.ToLower() == "null")
+                {
+                    query = query.Where(c => c.type == null);
+                }
+                else if (!string.IsNullOrEmpty(type))
+                {
+                    query = query.Where(c => c.type.ToUpper() == type.ToUpper());
+                }
+
+                // Fetch the data first
+                var computers = await query
+                    .Where(c => !string.IsNullOrEmpty(c.date_acquired)) // Ensure date_acquired is not null or empty
+                    .ToListAsync(); // Load data into memory
+
+                // If grouping by date_acquired
+                if (groupBy?.ToLower() == "date")
+                {
+                    var dateCounts = computers
+                        .Select(c => new
                         {
-                    new { Type = "LAPTOP", Count = laptopCount },
-                    new { Type = "CPU", Count = cpuCount }
-                });
-                    }
+                            DateAcquired = DateTime.TryParse(c.date_acquired, out DateTime parsedDate) ? parsedDate.Date : (DateTime?)null
+                        })
+                        .Where(c => c.DateAcquired.HasValue)  // Filter only non-null DateAcquired values
+                        .GroupBy(c => c.DateAcquired.Value)  // Group by parsed date
+                        .Select(g => new
+                        {
+                            date = g.Key,
+                            count = g.Count()
+                        })
+                        .OrderBy(g => g.date)  // Order the results by date
+                        .ToList();
 
-                    // If type is provided, get the count for that specific type
-                    var count = await _computerService.GetComputerCountByTypeAsync(type.ToUpper());
-
-                    return Ok(new { Type = type, Count = count });
+                    return Ok(dateCounts);
                 }
-                catch (Exception ex)
+
+                // If no type specified, return count per type
+                if (string.IsNullOrEmpty(type))
                 {
-                    return BadRequest($"Error retrieving computer count: {ex.Message}");
+                    var computerTypes = computers
+                        .Select(c => c.type.ToUpper())
+                        .Distinct()
+                        .ToList();
+
+                    var computerCounts = computers
+                        .GroupBy(c => c.type.ToUpper())
+                        .Select(g => new
+                        {
+                            type = g.Key,
+                            count = g.Count()
+                        })
+                        .ToList();
+
+                    var result = computerTypes.Select(t => new
+                    {
+                        type = t,
+                        count = computerCounts.FirstOrDefault(c => c.type == t)?.count ?? 0
+                    });
+
+                    return Ok(result);
                 }
+
+                // If type is provided and no grouping, return count for that type
+                var singleCount = computers.Count();
+                return Ok(new { Type = type, Count = singleCount });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error retrieving computer count: {ex.Message}");
+            }
         }
+
 
 
         [Authorize]
